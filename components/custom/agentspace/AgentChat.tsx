@@ -1,11 +1,14 @@
 "use client"
 
 import type { ReactNode } from "react"
-import { useContext } from "react"
+import { useContext, useState } from "react"
+import axios from "axios"
 import { ChevronDown, Send, Sparkles } from "lucide-react"
 import { AgentConfigContext } from "@/context/AgentConfigContext"
+import { toast } from "@/components/ui/toast"
+import type { MessageType } from "@/type/Message"
 
-function AgentMessage({ children, time = "9:42 AM", agentName }: { children: ReactNode; time?: string; agentName: string }) {
+function AgentMessage({ children, time, agentName }: { children: ReactNode; time: string; agentName: string }) {
   return (
     <div className="flex items-start gap-3">
       <div className="mt-0.5 flex size-8 shrink-0 items-center justify-center rounded-full bg-violet-100 text-violet-700"><Sparkles className="size-4" /></div>
@@ -17,26 +20,40 @@ function AgentMessage({ children, time = "9:42 AM", agentName }: { children: Rea
   )
 }
 
-function UserMessage() {
+function UserMessage({ children, time }: { children: ReactNode; time: string }) {
   return (
     <div className="flex items-start justify-end gap-3">
       <div className="max-w-[78%]">
-        <p className="mb-1.5 text-right text-xs font-medium text-zinc-500">You <span className="ml-1 font-normal">9:42 AM</span></p>
-        <div className="rounded-2xl rounded-tr-md bg-violet-600 px-4 py-3 text-sm leading-6 text-white">I’m putting together a launch for a small plant shop. Help me find a warm, memorable theme.</div>
+        <p className="mb-1.5 text-right text-xs font-medium text-zinc-500">You <span className="ml-1 font-normal">{time}</span></p>
+        <div className="rounded-2xl rounded-tr-md bg-violet-600 px-4 py-3 text-sm leading-6 text-white">{children}</div>
       </div>
       <div className="mt-0.5 flex size-8 shrink-0 items-center justify-center rounded-full bg-zinc-200 text-xs font-semibold text-zinc-600">JD</div>
     </div>
   )
 }
 
-function ChatComposer() {
+function ChatComposer({ userInput, setUserInput, onSend, isLoading }: { userInput: string; setUserInput: (value: string) => void; onSend: () => void; isLoading: boolean }) {
   return (
     <div className="shrink-0 border-t border-zinc-200 px-7 py-5">
       <div className="mx-auto max-w-3xl rounded-2xl border border-zinc-300 bg-white p-2 shadow-sm focus-within:border-violet-300 focus-within:ring-4 focus-within:ring-violet-50">
-        <textarea aria-label="Message Nova" rows={2} placeholder="Ask your agent anything..." className="w-full resize-none bg-transparent px-3 py-2 text-sm text-zinc-800 outline-none placeholder:text-zinc-400" />
+        <textarea aria-label="Message Nova" rows={2} value={userInput} onChange={(event) => setUserInput(event.target.value)} placeholder="Ask your agent anything..." className="w-full resize-none bg-transparent px-3 py-2 text-sm text-zinc-800 outline-none placeholder:text-zinc-400" />
         <div className="flex items-center justify-between px-2 pb-1">
           <span className="text-xs text-zinc-400">Nova can make mistakes. Review important information.</span>
-          <button type="button" aria-label="Send message" className="flex size-9 items-center justify-center rounded-xl bg-violet-600 text-white transition-colors hover:bg-violet-700"><Send className="size-4" /></button>
+          <button type="button" onClick={onSend} aria-label="Send message" disabled={!userInput.trim() || isLoading} className="flex size-9 items-center justify-center rounded-xl bg-violet-600 text-white transition-colors hover:bg-violet-700 disabled:cursor-not-allowed disabled:opacity-50"><Send className="size-4" /></button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function TypingIndicator({ agentName }: { agentName: string }) {
+  return (
+    <div className="flex items-start gap-3" role="status" aria-live="polite" aria-label={`${agentName} is typing`}>
+      <div className="mt-0.5 flex size-8 shrink-0 items-center justify-center rounded-full bg-violet-100 text-violet-700"><Sparkles className="size-4" /></div>
+      <div>
+        <p className="mb-1.5 text-xs font-medium text-zinc-500">{agentName} <span className="ml-1 font-normal">is thinking</span></p>
+        <div className="flex h-10 items-center gap-1.5 rounded-2xl rounded-tl-md border border-zinc-200 bg-zinc-50 px-4">
+          {[0, 150, 300].map((delay) => <span key={delay} className="size-2 animate-bounce rounded-full bg-violet-500" style={{ animationDelay: `${delay}ms` }} />)}
         </div>
       </div>
     </div>
@@ -47,6 +64,66 @@ export default function AgentChat() {
   const context = useContext(AgentConfigContext)
   if (!context) throw new Error("AgentChat must be rendered inside AgentConfigContext")
   const agentName = context.agentConfig?.name || "Agent"
+
+  const [messages, setMessages] = useState<MessageType[]>([
+    {
+      id: 'welcome',
+      role: 'agent',
+      content: `Hello! I am ${agentName}, how can I help you today?`,
+      time: new Date().toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })
+    }
+  ]);
+  const [userInput , setUserInput] = useState('');
+  const [isLoading, setIsLoading] = useState(false)
+
+  const sendMessage = async () => {
+    const content = userInput.trim()
+    if (!content) return
+
+    const agentId = context.agentConfig?.agentId
+    if (!agentId) {
+      toast.add({ title: "Agent is still loading", description: "Please wait a moment and try again.", type: "warning" })
+      return
+    }
+
+    const userMessage: MessageType = {
+      id: crypto.randomUUID(),
+      role: 'user',
+      content,
+      time: new Date().toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }),
+    }
+    const conversation = [...messages, userMessage]
+    setMessages(conversation)
+    setUserInput('')
+
+    setIsLoading(true)
+    try {
+      const response = await axios.post<{ response: string }>("/api/agent/chat", {
+        agentId,
+        messages: conversation.map(({ role, content }) => ({
+          role: role === "agent" ? "agent" : "user",
+          content,
+        })),
+      })
+
+      setMessages((currentMessages) => [
+        ...currentMessages,
+        {
+          id: crypto.randomUUID(),
+          role: 'agent',
+          content: response.data.response,
+          time: new Date().toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }),
+        },
+      ])
+    } catch (error) {
+      const message = axios.isAxiosError(error)
+        ? error.response?.data?.error ?? "Please try again in a moment."
+        : "Please try again in a moment."
+      toast.add({ title: "Could not get a response", description: message, type: "error" })
+    } finally {
+      setIsLoading(false)
+    }
+  }
 
   return (
     <section className="flex min-w-[380px] flex-1 flex-col bg-white">
@@ -62,16 +139,23 @@ export default function AgentChat() {
       <div className="flex flex-1 flex-col overflow-y-auto px-7 py-8">
         <div className="mx-auto flex w-full max-w-3xl flex-1 flex-col gap-7">
           <div className="self-center rounded-full bg-zinc-100 px-3 py-1 text-[11px] font-medium text-zinc-500">Today</div>
-          <AgentMessage agentName={agentName} time="9:40 AM">Hi! I’m {agentName}, your creative assistant. I can help brainstorm ideas, shape a draft, or give your project a fresh perspective. What are you working on?</AgentMessage>
-          <UserMessage />
-          <AgentMessage agentName={agentName}>
-            How about <span className="font-medium text-zinc-900">“A Little More Green”</span> — a welcoming neighborhood garden where every plant has a story? The visual direction could pair soft botanical greens with warm terracotta and handwritten notes.
-            <div className="mt-3 flex flex-wrap gap-2">{["The everyday jungle", "Grow at your own pace", "Rooted in the neighborhood"].map((idea) => <span key={idea} className="rounded-full border border-zinc-200 bg-white px-2.5 py-1 text-xs text-zinc-600">{idea}</span>)}</div>
-          </AgentMessage>
+          
+          {messages.map((msg, index) => (
+            <div key={msg.id || index}>
+              {msg.role === 'agent' ? (
+                <AgentMessage agentName={agentName} time={msg.time}>{msg.content}</AgentMessage>
+              ) : (
+                <UserMessage time={msg.time}>{msg.content}</UserMessage>
+              )}
+            </div>
+          ))}
+
+          {isLoading && <TypingIndicator agentName={agentName} />}
+        
           <div className="mt-auto" />
         </div>
       </div>
-      <ChatComposer />
+      <ChatComposer userInput={userInput} setUserInput={setUserInput} onSend={sendMessage} isLoading={isLoading} />
     </section>
   )
 }
