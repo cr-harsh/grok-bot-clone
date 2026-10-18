@@ -70,7 +70,13 @@ export default function AppSidebar() {
                 active ? "bg-violet-50 text-violet-900" : "text-zinc-700 hover:bg-zinc-100"
               }`}
             >
-              <img src={agent.agentImage} alt="" className="size-9 rounded-full object-cover ring-1 ring-black/5" />
+              {agent.agentImage ? (
+                <img src={agent.agentImage} alt="" className="size-9 rounded-full object-cover ring-1 ring-black/5" />
+              ) : (
+                <span className="flex size-9 shrink-0 items-center justify-center rounded-full bg-violet-100 text-violet-700" aria-hidden="true">
+                  <Sparkles className="size-4" />
+                </span>
+              )}
               <span className="min-w-0 flex-1">
                 <span className="block truncate text-sm font-medium">{agent.name}</span>
                 <span className="block truncate text-xs text-zinc-500">{agent.description}</span>

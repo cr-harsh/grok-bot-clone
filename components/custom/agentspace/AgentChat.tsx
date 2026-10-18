@@ -7,6 +7,9 @@ import { ChevronDown, Send, Sparkles } from "lucide-react"
 import { AgentConfigContext } from "@/context/AgentConfigContext"
 import { toast } from "@/components/ui/toast"
 import type { MessageType } from "@/type/Message"
+import { RoutineCard } from "./generative-ui/RoutineCard"
+import { ToolSuggestionCard } from "./generative-ui/ToolSuggestionCard"
+
 
 function AgentMessage({ children, time, agentName }: { children: ReactNode; time: string; agentName: string }) {
   return (
@@ -16,6 +19,28 @@ function AgentMessage({ children, time, agentName }: { children: ReactNode; time
         <p className="mb-1.5 text-xs font-medium text-zinc-500">{agentName} <span className="ml-1 font-normal">{time}</span></p>
         <div className="rounded-2xl rounded-tl-md border border-zinc-200 bg-zinc-50 px-4 py-3 text-sm leading-6 text-zinc-700">{children}</div>
       </div>
+    </div>
+  )
+}
+
+function AgentResponseView({ message, agentId }: { message: MessageType; agentId?: string }) {
+  const response = message.response
+  if (!response) return <p>{message.content}</p>
+
+  return (
+    <div>
+      <p>{response.message || message.content}</p>
+      {response.type === "clarification" && response.questions.length > 0 && (
+        <ul className="mt-2 list-inside list-disc space-y-1">
+          {response.questions.map(({ id, question }) => <li key={id}>{question}</li>)}
+        </ul>
+      )}
+      {response.routine && (
+        <RoutineCard routine={response.routine} tools={message.toolCards ?? []} />
+      )}
+      {response.suggestedTools.length > 0 && (
+        <ToolSuggestionCard suggestions={response.suggestedTools} tools={message.toolCards ?? []} agentId={agentId} />
+      )}
     </div>
   )
 }
@@ -98,8 +123,12 @@ export default function AgentChat() {
 
     setIsLoading(true)
     try {
-      const response = await axios.post<{ response: string }>("/api/agent/chat", {
+      const response = await axios.post<{
+        response: NonNullable<MessageType["response"]>
+        toolCards: NonNullable<MessageType["toolCards"]>
+      }>("/api/agent/chat", {
         agentId,
+        timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
         messages: conversation.map(({ role, content }) => ({
           role: role === "agent" ? "agent" : "user",
           content,
@@ -111,7 +140,9 @@ export default function AgentChat() {
         {
           id: crypto.randomUUID(),
           role: 'agent',
-          content: response.data.response,
+          content: response.data.response.message,
+          response: response.data.response,
+          toolCards: response.data.toolCards,
           time: new Date().toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }),
         },
       ])
@@ -143,7 +174,9 @@ export default function AgentChat() {
           {messages.map((msg, index) => (
             <div key={msg.id || index}>
               {msg.role === 'agent' ? (
-                <AgentMessage agentName={agentName} time={msg.time}>{msg.content}</AgentMessage>
+                <AgentMessage agentName={agentName} time={msg.time}>
+                  <AgentResponseView message={msg} agentId={context.agentConfig?.agentId} />
+                </AgentMessage>
               ) : (
                 <UserMessage time={msg.time}>{msg.content}</UserMessage>
               )}

@@ -5,4 +5,6 @@ export type AgentConfigType = {
   agentImage: string | null
   createdAt: string
   userEmail: string
+  composioSessionId: string | null
+  tools: string[] | null
 }
